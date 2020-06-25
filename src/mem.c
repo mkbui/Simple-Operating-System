@@ -50,8 +50,6 @@ static struct page_table_t * get_page_table(
 	 *
 	 * */
 	int i;
-	
-	//printf("Seg size %d", seg_table->size);
 	for (i = 0; i < seg_table->size; i++) {
 		// Enter your code here
 		if (seg_table->table[i].v_index == index) {
@@ -121,11 +119,17 @@ addr_t alloc_mem(uint32_t size, struct pcb_t * proc) {
 	 * */
 
 	uint32_t num_avail = 0;
+	// Physical memory check
 	for (int i = 0; i < NUM_PAGES; i++){
 		if (_mem_stat[i].proc == 0) num_avail++;
 	}
 
-	if (num_avail >= num_pages) mem_avail = 1;
+	// Virtual memory check
+	int seg_avail = 0;
+	// possible scenario that break pointer has exceeded seg table size
+	if (proc->bp + num_pages * PAGE_SIZE <= NUM_PAGES * PAGE_SIZE) seg_avail = 1;
+
+	if (num_avail >= num_pages && seg_avail == 1) mem_avail = 1;
 	if (mem_avail) {
 		/* We could allocate new memory region to the process */
 		ret_mem = proc->bp;
@@ -138,6 +142,7 @@ addr_t alloc_mem(uint32_t size, struct pcb_t * proc) {
 		 * 	  valid. */
 		int index = 0;
 		int prev = -1;
+		// temporary address for each page to allocate into virtual memory
 		addr_t vAddr = ret_mem;
 	
 		for (int j = 0; index < num_pages; j++){
@@ -182,8 +187,8 @@ addr_t alloc_mem(uint32_t size, struct pcb_t * proc) {
 					pSize = (page_table->size+=1) - 1;
 					page_table->table[pSize].v_index = second_lv;
 					page_table->table[pSize].p_index = j;
-					//printf("New page %d\n", page_table->table[pSize].p_index);
 				}
+				// increment temporary address for next page
 				vAddr += PAGE_SIZE;
 			}
 		}
@@ -204,29 +209,22 @@ int free_mem(addr_t address, struct pcb_t * proc) {
 	 * 	  processes.  */
 	pthread_mutex_lock(&mem_lock);
 
-	
-	addr_t statAddr;
 	int nextIdx = 0;
 	addr_t vAddr = address;
-	//printf("Freed address is %d\n", address);
 	// Find the mem stat address from given vAddr
 	addr_t first_lv = get_first_lv(vAddr);
 	addr_t second_lv = get_second_lv(vAddr);
 	struct page_table_t* page = get_page_table(first_lv, proc->seg_table);
 	int page_count = 0;
-	//printf("Page table size is %d", page->size);
-	for (int i = 0; i < page->size; i++){
+	int i;
+	for (i = 0; i < page->size; i++){
 		// Find the exact first page with the given address in segment table
 		if (page->table[i].v_index == second_lv){
-			statAddr = page->table[i].p_index;
-			_mem_stat[statAddr].proc = 0;
-			nextIdx = _mem_stat[statAddr].next;
-			page_count = 1;
+			nextIdx = page->table[i].p_index;
 			break;
 		}
 	}
 
-	//printf("Next index = %d\n", nextIdx);
 	// Having found the first page, dellocate all the blocks in physical mem stat
 	while (nextIdx != -1){
 		_mem_stat[nextIdx].proc = 0;
@@ -238,7 +236,6 @@ int free_mem(addr_t address, struct pcb_t * proc) {
 	if (proc->bp == address + page_count*PAGE_SIZE) {
 		proc->bp -= page_count*PAGE_SIZE;
 	}
-	//else printf("Not decrease\n");
 	
 	pthread_mutex_unlock(&mem_lock);
 	return 0;
