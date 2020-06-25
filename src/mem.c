@@ -162,13 +162,14 @@ addr_t alloc_mem(uint32_t size, struct pcb_t * proc) {
 					proc->seg_table->table[sSize].v_index = first_lv;
 					proc->seg_table->table[sSize].pages = (struct page_table_t*)malloc(sizeof(struct page_table_t));
 					proc->seg_table->table[sSize].pages->size = 0;
-					//proc->seg_table->table[size].pages.size = PAGE_LEN;	
 					page_table = (proc->seg_table->table[sSize].pages);
 				}
 				addr_t second_lv = get_second_lv(vAddr);
 				int i;
 				int found = 0;
 				for (i = 0; i < page_table->size; i++) {
+					// Search for existing pages (probably deallocated) with 
+					// v_index match
 					if (page_table->table[i].v_index == second_lv) {
 						page_table->table[i].p_index = j;
 						found = 1;
@@ -177,6 +178,7 @@ addr_t alloc_mem(uint32_t size, struct pcb_t * proc) {
 				
 				int pSize;
 				if (!found){
+					// open new page and allocate v_index for it
 					pSize = (page_table->size+=1) - 1;
 					page_table->table[pSize].v_index = second_lv;
 					page_table->table[pSize].p_index = j;
@@ -214,6 +216,7 @@ int free_mem(addr_t address, struct pcb_t * proc) {
 	int page_count = 0;
 	//printf("Page table size is %d", page->size);
 	for (int i = 0; i < page->size; i++){
+		// Find the exact first page with the given address in segment table
 		if (page->table[i].v_index == second_lv){
 			statAddr = page->table[i].p_index;
 			_mem_stat[statAddr].proc = 0;
@@ -224,15 +227,18 @@ int free_mem(addr_t address, struct pcb_t * proc) {
 	}
 
 	//printf("Next index = %d\n", nextIdx);
+	// Having found the first page, dellocate all the blocks in physical mem stat
 	while (nextIdx != -1){
 		_mem_stat[nextIdx].proc = 0;
 		nextIdx = _mem_stat[nextIdx].next;
 		page_count++;
 	}
 
-	// deallocate proc heap size
-	proc->bp -= page_count*PAGE_SIZE;
-	
+	// deallocate proc heap size (if at the end of the heap only)
+	if (proc->bp == address + page_count*PAGE_SIZE) {
+		proc->bp -= page_count*PAGE_SIZE;
+	}
+	//else printf("Not decrease\n");
 	
 	pthread_mutex_unlock(&mem_lock);
 	return 0;
